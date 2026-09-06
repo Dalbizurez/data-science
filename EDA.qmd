@@ -1,0 +1,414 @@
+---
+title: "Análisis Exploratorio - Imputación de Datos"
+author: "Curso Ciencia de Datos"
+date: "2026-08-10"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+editor: visual
+engine: jupyter
+jupyter: python3
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+#| echo: true
+
+# Cargar librerías R
+library(tidyverse)
+library(naniar)
+library(VIM)
+library(mice)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+```
+
+```{r}
+py_require("pandas", "seaborn", "numpy", "sklearn", "jupyter")
+```
+
+```{python setup_py}
+#| echo: true
+
+# Cargar bibliotecas Python
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.impute import SimpleImputer, KNNImputer
+from sklearn.preprocessing import StandardScaler
+import missingno as msno
+import warnings
+warnings.filterwarnings('ignore')
+```
+
+## Carga y exploración de datos
+
+### Generación de datos de ejemplo
+
+```{r}
+# Crear dataset de ejemplo con valores faltantes y atípicos
+set.seed(123)
+n <- 1000
+
+datos_r <- data.frame(
+  id = 1:n,
+  edad = round(rnorm(n, mean = 35, sd = 12)),
+  ingreso = round(rnorm(n, mean = 50000, sd = 15000)),
+  educacion = sample(1:5, n, replace = TRUE, prob = c(0.1, 0.2, 0.3, 0.25, 0.15)),
+  experiencia = round(rnorm(n, mean = 10, sd = 7)),
+  satisfaccion = round(runif(n, min = 1, max = 10))
+)
+
+# Introducir valores faltantes (MCAR)
+indices_na <- sample(1:n, size=50)
+datos_r$edad[indices_na] = NA
+
+
+# Introducir valores atípicos
+indices_outliers <- sample(1:n, size=20)
+datos_r$ingreso[indices_outliers] = datos_r$ingreso[indices_outliers] * 5
+
+# Introducir valores faltantes condicionales (MAR)
+indices_mar <- sample(which(datos_r$educacion >=4),size = 30)
+datos_r$satisfaccion[indices_mar] = NA
+
+head(datos_r)
+```
+
+```{python}
+# Crear dataset de ejemplo con valores faltantes y atípicos con python
+np.random.seed(123)
+n = 1000
+
+datos_python = pd.DataFrame({
+  'id': range(1,n+1),
+  'edad':  np.round(np.random.normal(35,12,n)).astype(int),
+  'ingreso': np.round(np.random.normal(50000, 15000, n)).astype(int),
+  'educacion': np.round.choice([1, 2, 3, 4, 5], n, p= [0.1, 0.2, 0.3, 0.25, 0.15]), 
+  'experiencia': np.round(np.random.normal(10, 7, n)).astype(int),
+  'satisfaccion': np.round(np.random.uniform(1,10, n))
+})
+
+# Introducir valores faltantes (MCAR)
+indices_na = np.random.choice(range(n), size=50, replace=False)
+datos_py.loc[indices_na, 'edad'] = np.nan
+
+
+# Introducir valores atípicos
+indices_outliers = np.random.choice(range(n), size = 20, replace= False)
+datos_py.loc[indices_outliers, 'ingreso'] = datos_py.loc[indices_outliers, 'ingreso'] * 5
+
+# Introducir valores faltantes condicionales (MAR)
+indices_mar = np.random.choice(datos_py[datos_py['educacion'] >= 4].index, size = 30, replace=False)
+datos_py.loc[indices_mar, 'satisfaccion'] = np.nan
+
+datos_py.head()
+```
+
+```{r}
+#| label: analisis_inicial_r
+#| echo: true
+
+# Resumen estadístico
+summary(datos_r)
+
+# Estructura del dataset
+str(datos_r)
+
+# Visualización de valores faltantes
+gg_miss_var(datos_r) +
+  labs(title = "Proporcion de valores faltantes por variable",
+       x = "Variable", y= "Proporcion de faltantes")
+```
+
+\*\*Equivalente en Python\*\*
+
+```{python}
+#| label: analisis_inicial_python
+#| echo: true
+
+# Resumen estadístico
+print(datos_py.describe())
+
+# Estructura del dataset
+print(datos_py.info())
+
+# Visualización de valores faltantes
+plt.figure(figsize=(10,6))
+msno.bar(datos_py)
+plt.title = "Proporcion de valores faltantes por variable"
+plt.show()
+```
+
+## Imputación de valores faltantes
+
+### Métoods de imputación de valores faltantes
+
+**Tipos de imputación** 1. Imputación simple: - Media/Mediana/Moda - Valor constante - último valor observado (LOCF) 1. Imputación avanzada: - Regresión - K-Nearest - Múltiple por ecuaciones encadenadas - Por Árboles de decisión
+
+### Imputación en R
+
+```{r}
+#| label: imputacion_r
+#| echo: true
+
+# Método 1: Imputación por mediana (Valor ausente = mediana)
+datos_r_mediana = datos_r
+datos_r_mediana$edad[is_na(datos_r_mediana$edad)] <- median(datos_r_mediana$edad, na.rm =TRUE)
+
+datos_r_mediana$satisfaccion[is_na(datos_r_mediana$satisfaccion)] <- median(datos_r_mediana$satisfaccion, na.rm = TRUE)
+
+# Método 2: Imputación por regresión lineal
+modelo_edad <- lm(edad ~ ingreso + edcacion + experiencia, datos_r)
+datos_r_lm <- datos_r
+indices_na_edad <- which(is_na(datos_r_lm$edad))
+
+if(length(indices_na_edad)>0) {
+  datos_r_lm$edad[indices_na_edad] <- predict(modelo_edad, newdata = datos_r_lm[indices_na_edad,])
+}
+
+# Método 3: Imputación múltiple con MICE
+imputaciones <- mice(datos_r, m=5, method='pmm', maxit=50, seed = 123)
+
+datos_r_mice <- complete(imputaciones, 1)
+
+# Comparación de los métodos de imputación
+comparacion <- data.frame(Variable = c("Edad", "Satisfaccion"),
+                          Original_NA = c(sum(is_na(datos_r$edad)),
+                                          sum(is_na(datos_r$satisfaccion))),
+                          Mediana_NA = c(sum(is_na(datos_r_mediana$edad)),
+                                    sum(is_na(datos_r_mediana$satisfaccion))),
+                          LM_NA = c(sum(is_na(datos_r_lm$edad)),
+                                    sum(is_na(datos_r_lm$satisfaccion))),
+                          MICE_NA = c(sum(is_na(datos_r_mice$edad)),
+                                      sum(is_na(datos_r_mice$satisfaccion)))
+                          )
+print(comparacion)
+
+print(datos_r[indices_na_edad])
+datos_r_mediana[indices_na_edad,]
+datos_r_lm[indices_na_edad,]
+datos_r_mice[indices_na_edad,]
+```
+
+### Imputación de datos en Python
+
+```{python}
+#| label: imputacion-python
+#| echo: true
+
+from sklearn.linear_model import LinearRegression
+
+# Método 1: Imputación por mediana
+imputer_median = SimpleImputer(strategy='median')
+datos_py_median = pd.DataFrame(imputer_median.fit_transform(datos_py), 
+                               columns=datos_py.columns)
+
+# Método 2: Imputación por KNN
+imputer_knn = KNNImputer(n_neighbors=5)
+datos_py_knn = pd.DataFrame(imputer_knn.fit_transform(datos_py), 
+                            columns=datos_py.columns)
+
+# Método 3: Imputación por regresión (solo para edad)
+datos_py_lm = datos_py.copy()
+edad_na_mask = datos_py_lm['edad'].isna()
+if edad_na_mask.any():
+    train_data = datos_py_lm[~edad_na_mask]
+    test_data = datos_py_lm[edad_na_mask]
+    
+    X_train = train_data[['ingreso', 'educacion', 'experiencia']].values
+    y_train = train_data['edad'].values
+    X_test = test_data[['ingreso', 'educacion', 'experiencia']].values
+    
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    datos_py_lm.loc[edad_na_mask, 'edad'] = model.predict(X_test)
+
+# Comparación de métodos
+comparacion_py = pd.DataFrame({
+    'Variable': ['Edad', 'Satisfacción'],
+    'Original_NA': [datos_py['edad'].isna().sum(), datos_py['satisfaccion'].isna().sum()],
+    'Mediana_NA': [datos_py_median['edad'].isna().sum(), datos_py_median['satisfaccion'].isna().sum()],
+    'KNN_NA': [datos_py_knn['edad'].isna().sum(), datos_py_knn['satisfaccion'].isna().sum()],
+    'LM_NA': [datos_py_lm['edad'].isna().sum(), datos_py_lm['satisfaccion'].isna().sum()]
+})
+print(comparacion_py)
+```
+
+```{python}
+#| label: outliers-python
+#| echo: true
+
+# Función para detectar outliers usando IQR
+def detectar_outliers_iqr(df, columna):
+    Q1 = df[columna].quantile(0.25)
+    Q3 = df[columna].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    return (df[columna] < lower_bound) | (df[columna] > upper_bound)
+
+# Detectar outliers en ingreso
+outliers_ingreso = detectar_outliers_iqr(datos_py, 'ingreso')
+print(f"Número de outliers en ingreso: {outliers_ingreso.sum()}")
+
+# Boxplot para visualizar outliers
+plt.figure(figsize=(10, 6))
+plt.boxplot(datos_py['ingreso'])
+plt.title('Boxplot de Ingreso - Detección de Outliers')
+plt.ylabel('Ingreso')
+plt.show()
+
+# Tratamiento de outliers: Winsorización
+def winsorizar(serie, lower_percentile=0.05, upper_percentile=0.95):
+    lower = serie.quantile(lower_percentile)
+    upper = serie.quantile(upper_percentile)
+    return serie.clip(lower=lower, upper=upper)
+
+datos_py_winsor = datos_py.copy()
+datos_py_winsor['ingreso'] = winsorizar(datos_py_winsor['ingreso'])
+
+# Comparación antes/después de winsorización
+print("Estadísticos originales:")
+print(datos_py['ingreso'].describe())
+print("\nEstadísticos después de winsorización:")
+print(datos_py_winsor['ingreso'].describe())
+
+
+```
+
+```{python}
+#| label: comparacion-imputacion-python
+#| echo: true
+
+# Función para calcular estadísticos comparativos
+def comparar_imputaciones(original, imputado, variable):
+    return pd.DataFrame({
+        'Métrica': ['Media', 'Mediana', 'Desv_Estandar'],
+        'Original': [
+            original[variable].mean(),
+            original[variable].median(),
+            original[variable].std()
+        ],
+        'Imputado': [
+            imputado[variable].mean(),
+            imputado[variable].median(),
+            imputado[variable].std()
+        ]
+    })
+
+# Comparar métodos para edad
+print("Comparación de métodos de imputación para Edad:")
+comparacion_py_median = comparar_imputaciones(datos_py, datos_py_median, 'edad')
+print("\nImputación por Mediana:")
+print(comparacion_py_median)
+
+comparacion_py_knn = comparar_imputaciones(datos_py, datos_py_knn, 'edad')
+print("\nImputación por KNN:")
+print(comparacion_py_knn)
+
+comparacion_py_lm = comparar_imputaciones(datos_py, datos_py_lm, 'edad')
+print("\nImputación por Regresión:")
+print(comparacion_py_lm)
+
+# Visualización de distribución
+fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+axes[0, 0].hist(datos_py['edad'].dropna(), bins=30, color='lightblue')
+axes[0, 0].set_title('Edad Original')
+axes[0, 1].hist(datos_py_median['edad'], bins=30, color='lightgreen')
+axes[0, 1].set_title('Edad - Mediana')
+axes[1, 0].hist(datos_py_knn['edad'], bins=30, color='lightyellow')
+axes[1, 0].set_title('Edad - KNN')
+axes[1, 1].hist(datos_py_lm['edad'], bins=30, color='lightpink')
+axes[1, 1].set_title('Edad - Regresión')
+plt.tight_layout()
+plt.show()
+```
+
+### Análisis de Correlación y Relaciones
+
+```{r}
+#| label: analisis-correlacion-r
+#| echo: true
+
+# Matriz de correlación después de imputación
+correlacion <- cor(datos_r_mice[, c("edad", "ingreso", "educacion", "experiencia", "satisfaccion")])
+
+# Visualización de la matriz de correlación
+corrplot(correlacion, method= "color", type="upper", 
+         addCoef.col = "black", tl.col = "black",
+         title = "Matrix de Correlación", mar= c(0,0,2,0))
+
+# Gráfico de dispersión
+pairs(datos_r_mice[, c("edad", "ingreso", "educacion", "experiencia")], 
+      main = "Gráficos de Dispersión entre Variables")
+```
+
+#### Resumen de hallazgos
+
+**Resumen R**
+
+```{r}
+#| label: conclusiones-r
+#| echo: true 
+
+# Resumen final
+cat("RESUMEN DEL ANÁLISIS EXPLORATORIO\n\n")
+cat("1. Datos faltantes: \n")
+cat("   - Edad: MCAR(50 valores faltantes\n")
+cat("   - Satisfacción MAR (30 valores faltantes en educación >= 4)\n\n")
+
+cat("2. Métodos de imputación evaluados\n")
+cat("   - Mediana: Simple pero puede sesgar la distribución\n")
+cat("   - Regresión: Considera relaciones entre varialbes\n")
+cat("   - MICE/KNN: Capturan patrones complejos en los datos\n\n")
+
+cat("3. Outliers detectados: \n")
+cat("   - Ingreso: 2' valores extremos identificados\n")
+cat("   - Tratamiento aplicado: Winsorización al 5% y 95%\n\n")
+
+cat("4. Recomendaciones\n")
+cat("   - Para datos MCAR: Cualquier método es válido\n")
+cat("   - Para datos MAR: Usar métodos avanzaods como MICE\n")
+cat("   - Para outliers: Winsoriación o transformación logarítimica\n")
+```
+
+## Guardado y carga de datos
+
+```{r}
+#| label: guardar-cargar-datos
+#| echo: true
+
+write.csv(datos_r, "datos_ejemplo.csv", row.names = FALSE)
+# df. to csv('nombre.csv', index = FALSE)
+
+# Función para cargar datos (si ya existen)
+cargar_datos <- function(ruta = "datos_ejemplo.csv") {
+  if (file.exists(ruta)) {
+    datos <- read.csv(ruta)
+    cat("Datos cargaods dese:", ruta, "\n")
+  } else {
+    cat("No se encontro el archivo, Generando datos nuesvos...\n")
+    set.seed(123)
+    n <- 1000
+    
+    datos <- data.frame(
+      id = 1:n,
+      edad = round(rnorm(n, mean = 35, sd = 12)),
+      ingreso = round(rnorm(n, mean = 50000, sd = 15000)),
+      educacion = sample(1:5, n, replace = TRUE, prob = c(0.1, 0.2, 0.3, 0.25, 0.15)),
+      experiencia = round(rnorm(n, mean = 10, sd = 7)),
+      satisfaccion = round(runif(n, min = 1, max = 10))
+    )
+  }
+}
+
+```

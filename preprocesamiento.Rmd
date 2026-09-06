@@ -1,0 +1,237 @@
+---
+title: "03 - Preprocesamiento"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+date: "2026-07-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(titanic)
+datos = titanic_train
+```
+
+## Carga de datos
+¿Cómo visualizamos los primeros datos del conjunto?
+```{r Titanic, echo = FALSE}
+head(Titanic)
+```
+
+¿Cómo hacemos para saber de que tipo don los datos (Texto/número)?
+```{r, echo=FALSE}
+str(datos)
+```
+
+## Limpieza de datos
+
+¿Cuántos datos faltantes hay para la variable edad (Age)?
+```{r, echo=FALSE}
+sum(is.na(datos$Age))
+```
+
+Si los eliminamos perdemos demasiada información
+Entonces debemos **imputarlos** (Imputar a la media o mediana)
+Recordatorio: La media se ve afectada por *valores atípicos (outliers)*
+
+```{r, echo=FALSE}
+datos$Age[is.na(datos$Age)] <- mean(datos$Age, na.rm = TRUE)
+```
+
+
+## Análisis exploratorio de Datos (EDA) con gráficos
+
+¿Cómo determinar si los niños (<12) sobrevivieron más?
+```{r, echo=FALSE}
+datos$Child = ifelse(datos$Age < 12, 'Niño', 'Adulto')
+datos$Sex = as.factor(datos$Sex)
+datos$Survived = as.factor(datos$Survived)
+datos$Pclass = as.factor(datos$Pclass)
+```
+## Nivel 1: R Base (Sin incluir ningun paquete)
+Ideal para entender la lofica sin dependencias
+
+### Tabla de contingencia
+Cuantos hombre y mujeres sobrevivieron
+
+```{r, echo=FALSE}
+table(datos$Sex, datos$Survived)
+
+# Porcentajes por fila para determinar las proporciones 
+prop.table(table(datos$Sex, datos$Survived), margin = 1)*100
+```
+
+## Box Plot (Edad Vs. Supervivencia)
+¿La edad de los sobrevivientes es similar a la edad de quienes no?
+```{r, echo=FALSE}
+boxplot(Age~Survived,
+        data = datos,
+        main = "Distribución de edad por supervivencia",
+        xlab = "¿Sobrevivió (0 =  No, 1 = Si?",
+        ylab = "Edad (Años)",
+        col = c('red', 'green'),
+        notch = TRUE
+        )
+```
+
+## Barplot de supervivencia por clase
+¿La clase influenció en la supervivencia?
+```{r, echo=FALSE}
+contingencia_clase = table(datos$Pclass, datos$Survived)
+barplot(contingencia_clase,
+        beside=TRUE,
+        col = c('skyblue', 'orange', 'darkgreen'),
+        legend.text = c('1a.clase', '2a.clase', '3a.clase'),
+        args.legend = list(x = "topright"),
+        main = 'Supervivencia por clase del pasajero',
+        xlab = 'Sobrevivió',
+        ylab = 'Cantidad de pasajeros'
+        )
+```
+# Barplot de barra apiladas
+```{r, echo=FALSE}
+contingencia_clase = prop.table(table(datos$Pclass, datos$Survived))*100
+barplot(contingencia_clase,
+        col = c('skyblue', 'orange', 'darkgreen'),
+        legend.text = c('1a.clase', '2a.clase', '3a.clase'),
+        args.legend = list(x = "topright"),
+        main = 'Supervivencia por clase del pasajero',
+        xlab = 'Sobrevivió',
+        ylab = 'Cantidad de pasajeros'
+        )
+```
+
+## Nivel 2: GGPLOT2 (Más profesional y estético)
+
+### Boxplot con ggplot2 (El más utilizado)
+
+¿Qué grupo tiene mayor edad (Observar las medianas)?
+
+## Nivel 2: GGPLOT2 (Mas profesional y estetico)
+### Boxplot con ggplot2 (el mas utilizado)
+
+Que grupo tiene mayor edad? (observar las madianas)
+```{r, echo = FALSE}
+library(ggplot2)
+
+p1 <- ggplot(datos, aes(x = Survived, y = Age, fill = as.factor(Survived))) +
+  geom_boxplot(alpha = 0.7, outlier.color = 'red', outlier.size = 2) +
+  scale_fill_manual(
+    values = c('0' = '#FAC955', '1' = '#2ECC71'),
+    labels = c('0' = 'No Sobrevivió', '1' = 'Sobrevivió')
+  ) +
+  labs(
+    title = 'Distribución de edad por supervivencia',
+    x = 'Supervivencia',
+    y = 'Edad (años)'
+  ) +
+  theme_minimal() +
+  theme(legend.position = 'none')
+
+print(p1)
+```
+### Grafico de barras porcentuales (Mejor para hacer comparacion)
+Que clase tuvo el mayor numero de supervivientes?
+```{r, echo = FALSE}
+p2 <- ggplot(datos, aes(x = Pclass, fill = factor(Survived))) +
+      geom_bar(position = "dodge", alpha = 0.8) +
+      scale_fill_manual(values = c('0' = '#79EFF2', '1' = '#F0F279'),
+                        labels = c("No sobrevivió", "Sobrevivió")) +
+      labs(title = "Supervivencia por clase",
+           subtitle = "La 1.ª clase tuvo más supervivientes en números absolutos",
+           x = "Clase del pasajero",
+           y = "Cantidad de pasajeros")
+print(p2)
+```
+### Grafico de barras porcentuales (Mejor para hacer comparacion)
+Que clase tuvo el mayor porcentaje de supervicencia?
+```{r, echo = FALSE}
+p3 <- ggplot(datos, aes(x = Pclass, fill = factor(Survived))) +
+      geom_bar(position = "dodge", alpha = 0.8) +
+      scale_fill_manual(values = c('0' = '#79EFF2', '1' = '#F0F279'),
+                        labels = c("No sobrevivió", "Sobrevivió")) +
+      scale_y_continuous(labels = scales::percent_format())+ 
+  labs(title = "Supervivencia por clase",
+           subtitle = "La 1.ª clase tuvo más supervivientes en números absolutos",
+           x = "Clase del pasajero",
+           y = "Cantidad de pasajeros")
+print(p3)
+```
+
+### Relacion entre Edad, Clase y Supervivencia (Mas avanzado)
+Los ninios de la 3a. clase tuvieron la misma oportunidad de supervivencia que los ninios de la 1a. clase?
+
+```{r, echo = FALSE}
+p4 <- ggplot(datos, aes(x = Age, fill = factor(Survived))) + 
+  geom_histogram(bins = 30, alpha = 0.6, position = "identity") + 
+  facet_wrap(~ Pclass, nrow = 1) + 
+  scale_fill_manual(values = c('0' = '#DA79F2', '1' = '#7999F2'),
+                    labels = c("No sobrevivió", "Sobrevivió")) +
+  labs(title = "Distribución por Edad, Clase y Supervivencia",
+       subtitle = "Los niños de la 1.ª y 2.ª clase sobrevivieron más que los de la 3.ª clase",
+       x = "Edad (Años)",
+       y = "Cantidad de pasajeros") +
+  theme_minimal()   
+
+print(p4)
+```
+## Nivel 3: DPLYR + GGPLOT (Flujo de trabajo profesional)
+Encadenar procesos de trabajo (pipe)
+
+1. Calcular la tasa de supervivencia por genero y clase.
+```{r, echo = FALSE}
+library(dplyr)
+analisis_completo <- datos %>%
+  #Agrupar por sexo y clase
+  group_by(Sex, Pclass) %>%
+    # Calcular las matrices
+    summarise(
+      Sobrevivieron = sum(Survived == 1),
+      Total = n(),
+      Tasa_supervivencia = (Sobrevivieron / Total)*100,
+      Edad_media = mean(Age, na.rm=TRUE),
+      .groups = "drop" # desagrupar
+    ) %>%
+  # Ordenar para merjorar la visualización
+  arrange(desc(Tasa_supervivencia))
+# Mostrar los resultados
+print(analisis_completo)
+```
+# Visulalización por gráfico de barras 
+```{r, echo = FALSE}
+p5 <- analisis_completo %>%
+  ggplot(aes(x = interaction(Sex, Pclass),
+             y = Tasa_supervivencia,
+             fill = Sex)
+  ) +
+  geom_col(alpha = 0.8, width = 0.7) +
+  geom_text(aes(label = paste0(round(Tasa_supervivencia, 1), "%")),
+            vjust = -0.5,
+            size = 4
+            ) +
+  scale_fill_manual(values = c("female" = "#E67E22", "male" = "#2980b9")) +
+  labs(title= "Tasa de supervivencia por Género y Clase",
+       subtitle = "Las mujeres de la 1a. Clase tuvieron el 97% de superivencia",
+       x = "Género - Clase",
+       y = "Tasa de supervivencia (%)") +
+  theme_minimal() + 
+  theme(axis.title.x = element_text(angle = 45, hjust = 1))
+print(p5)
+```
+
+##Visualizaciones múltiples
+### Con GGPLOT y GridExtra
+```{r, echo = FALSE}
+library(gridExtra)
+grid.arrange(p1, p2, p3, p4, ncol=2, nrow = 2)
+```
+
+### Con R base
+```{r, echo = FALSE}
+par(mfrow= c(2,2))
+boxplot(Age~Survived, data= datos, main = "Boxplot de Supervivencia")
+barplot(table(datos$Pclass, datos$Survived), beside = TRUE, main = "Clase vs Supervivencia")
+par(mfrow= c(1,1))
+
+```
