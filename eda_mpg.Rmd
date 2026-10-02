@@ -1,0 +1,304 @@
+---
+title: "Tablas de distribución de frecuencias y análisis exploratorio"
+subtitle: "Dataset Auto (ISLR2) · Variable analizada: mpg"
+author: "Nombre del estudiante"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    df_print: paged
+  word_document:
+    toc: true
+lang: es
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.width = 7, fig.height = 4.2, fig.align = "center")
+# install.packages(c("ISLR2","ggplot2","dplyr","e1071","car","knitr"))
+library(ISLR2); library(ggplot2); library(dplyr); library(e1071); library(car); library(knitr)
+```
+
+**Objetivo:** construir e interpretar tablas de distribución de frecuencias para datos agrupados por intervalos de clase, utilizando el dataset `Auto` de ISLR2.
+
+# Reconocimiento del dataset
+
+```{r datos}
+data("Auto")
+# origin viene codificado 1, 2, 3: se convierte en factor con etiquetas
+Auto$origin    <- factor(Auto$origin, levels = 1:3, labels = c("usa", "europe", "japan"))
+Auto$cylinders <- factor(Auto$cylinders)
+
+dim(Auto)
+str(Auto)
+colSums(is.na(Auto))
+```
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Cuántas filas y columnas tiene? | `r nrow(Auto)` filas y `r ncol(Auto)` columnas. La versión original de la UCI/Seaborn tiene 398 filas; ISLR2 ya excluye 6 con datos faltantes. |
+| ¿Qué variables numéricas contiene? | `mpg`, `displacement`, `horsepower`, `weight` y `acceleration` (cuantitativas). `cylinders`, `year` y `origin` son numéricas en R pero se tratan como categóricas; `name` es texto. |
+| ¿Existen valores nulos? | `r sum(is.na(Auto))` valores nulos. En la versión original solo `horsepower` tenía 6 NA, ya eliminados en ISLR2. |
+| ¿Qué variable analizaremos? | `mpg` (rendimiento de combustible). |
+
+# Paso 1: Selección de la variable
+
+**Variable elegida: `mpg`** (rendimiento de combustible, millas por galón). Es cuantitativa continua y su interpretación es directa: a mayor mpg, mayor eficiencia.
+
+# Paso 2: Medidas descriptivas previas
+
+```{r descriptivas}
+x <- Auto$mpg
+medidas <- data.frame(
+  Medida = c("n (tamaño de muestra)", "Mínimo", "Máximo", "Rango (R)", "Media (x̄)",
+             "Mediana", "Desviación estándar (s)", "Coeficiente de variación (CV %)"),
+  Valor = round(c(length(x), min(x), max(x), diff(range(x)), mean(x),
+                  median(x), sd(x), sd(x) / mean(x) * 100), 2)
+)
+kable(medidas)
+```
+
+**Interpretación:** El auto promedio de la muestra recorre unas 23.4 millas por galón, y la mitad de los vehículos rinde menos de 22.75 mpg. El rango de 37.6 mpg muestra que hay desde autos muy ineficientes (9 mpg) hasta muy eficientes (46.6 mpg). Una desviación estándar de 7.81 mpg y un CV de 33.3 % indican una variabilidad moderada-alta: los autos se alejan, en promedio, un tercio de la media. La media es ligeramente mayor que la mediana, lo que anticipa una leve asimetría hacia la derecha.
+
+# Paso 3: Tabla de frecuencias y visualización
+
+Número de clases por la regla de Sturges: $k = 1 + 3.322\log_{10}(392) \approx 9.6 \rightarrow 10$ clases. Amplitud: $A = R/k = 37.6/10 \approx 3.76 \rightarrow 4$ mpg, iniciando en el mínimo (9).
+
+```{r tabla}
+k    <- 1 + 3.322 * log10(length(x))
+k
+bins <- seq(9, 49, by = 4)                       # 10 clases de amplitud 4
+cl   <- cut(x, breaks = bins, right = FALSE)     # intervalos [a, b)
+
+tabla <- data.frame(table(cl))
+names(tabla) <- c("Clase", "f")
+tabla$Marca  <- head(bins, -1) + 2
+tabla$fr     <- round(tabla$f / sum(tabla$f) * 100, 2)
+tabla$F      <- cumsum(tabla$f)
+tabla$Fr     <- round(cumsum(tabla$f) / sum(tabla$f) * 100, 2)
+tabla <- tabla[, c("Clase", "Marca", "f", "fr", "F", "Fr")]
+
+kable(tabla, col.names = c("Clase (mpg)", "Marca de clase", "f", "fr (%)", "F", "Fr (%)"))
+```
+
+*f* = frecuencia absoluta; *fr* = frecuencia relativa porcentual; *F* = frecuencia absoluta acumulada; *Fr* = porcentaje acumulado.
+
+## Histograma
+
+```{r histograma}
+ggplot(Auto, aes(mpg)) +
+  geom_histogram(breaks = bins, closed = "left", fill = "#2E75B6", color = "white") +
+  geom_vline(aes(xintercept = mean(mpg),   color = "Media"),   linetype = "dashed", linewidth = 0.8) +
+  geom_vline(aes(xintercept = median(mpg), color = "Mediana"), linetype = "dotted", linewidth = 1) +
+  scale_color_manual(NULL, values = c(Media = "#C00000", Mediana = "#548235")) +
+  scale_x_continuous(breaks = bins) +
+  labs(title = "Distribución del rendimiento de combustible (mpg), n = 392",
+       x = "Rendimiento de combustible (millas/galón)",
+       y = "Frecuencia absoluta (n.º de autos)") +
+  theme_minimal()
+```
+
+## Ojiva (porcentaje acumulado)
+
+```{r ojiva}
+ojiva <- data.frame(limite = bins, Fr = c(0, tabla$Fr))
+
+ggplot(ojiva, aes(limite, Fr)) +
+  geom_line(color = "#C55A11") + geom_point(color = "#C55A11", size = 2) +
+  geom_hline(yintercept = 50, linetype = "dotted", color = "gray50") +
+  scale_x_continuous(breaks = bins) + ylim(0, 100) +
+  labs(title = "Ojiva: porcentaje acumulado del rendimiento (mpg)",
+       x = "Rendimiento de combustible (millas/galón)",
+       y = "Porcentaje acumulado (%)") +
+  theme_minimal()
+```
+
+## Forma de la distribución
+
+```{r forma}
+skewness(x, type = 3)   # asimetría
+kurtosis(x, type = 3)   # curtosis (exceso)
+
+Q    <- quantile(x, c(.25, .75))
+cerco <- Q[2] + 1.5 * diff(Q)
+c(Q1 = Q[[1]], Q3 = Q[[2]], cerco_superior = cerco, n_atipicos = sum(x > cerco))
+```
+
+- **¿Simétrica o sesgada?** Levemente sesgada a la derecha (asimetría ≈ 0.46; media 23.45 > mediana 22.75). La curtosis ≈ −0.52 indica una distribución algo más aplanada que la normal.
+- **¿Dónde se concentra la mayor frecuencia?** En los rendimientos bajos: las clases [13, 17) y [17, 21) empatan con 79 autos cada una (40.3 % de la muestra entre las dos).
+- **¿Valores atípicos?** Con el criterio de Tukey (Q1 = 17, Q3 = 29, cerco superior = 47) no hay atípicos; el máximo, 46.6 mpg, queda justo en el límite. Se aprecia una cola derecha larga con muy pocos autos por encima de 41 mpg (7 autos).
+
+# Paso 4: Interpretación de resultados
+
+La variable `mpg` mide cuántas millas puede recorrer un vehículo con un galón de combustible, por lo que está expresada en millas/galón y valores altos significan mayor eficiencia. El conjunto contiene 392 autos de los años 1970 a 1982, época marcada por las crisis petroleras y por un parque vehicular dominado por motores grandes.
+
+En cuanto a la tendencia central, la media (23.45 mpg) y la mediana (22.75 mpg) son similares, con una diferencia menor a 1 mpg. La media queda ligeramente por encima porque unos pocos autos muy eficientes (35 a 46 mpg) la arrastran hacia la derecha, mientras que la mediana es resistente a esos valores. Esto concuerda con la asimetría positiva del histograma y con que la clase mediana sea [21, 25).
+
+Sobre la dispersión, la desviación estándar es de 7.81 mpg y el CV es de 33.3 %. Un CV cercano a un tercio de la media indica heterogeneidad considerable: el dataset mezcla autos compactos y pesados con tecnologías y tamaños de motor muy distintos. El rango intercuartílico (17 a 29 mpg) confirma que el 50 % central de los autos se extiende 12 mpg.
+
+La ojiva permite leer que aproximadamente 43.6 % de los autos rinde menos de 21 mpg, 57.7 % menos de 25 mpg y 73.7 % menos de 29 mpg. Solo 5.6 % supera los 37 mpg. En conclusión, los vehículos del dataset son en su mayoría de bajo a moderado rendimiento, con una minoría de autos muy eficientes. La variabilidad es alta y, como se ve en el análisis comparativo, buena parte de ella se explica por el número de cilindros y el país de origen.
+
+# Paso 5: Preguntas de reflexión
+
+**1. ¿Qué aporta la ojiva que no aporta el histograma?** El histograma muestra cuántos autos hay en cada intervalo, es decir, la forma y la moda. La ojiva muestra el porcentaje acumulado, lo que permite responder preguntas del tipo «¿qué porcentaje de autos rinde menos de X mpg?», leer la mediana y otros percentiles (la curva cruza 50 % en torno a 22–23 mpg) y comparar posiciones relativas sin depender del ancho de las clases.
+
+**2. Comparar 4 vs 8 cilindros con tablas de frecuencia:** construiría una tabla para cada grupo con las mismas clases y usaría frecuencias relativas (%) en lugar de absolutas, porque los grupos tienen tamaños distintos (199 autos de 4 cilindros y 103 de 8). Compararía las frecuencias relativas clase por clase y las acumuladas. Los autos de 8 cilindros se concentran en las clases bajas (todos con 26.6 mpg o menos) y los de 4 cilindros en las medias y altas (mínimo de 18 mpg). También se pueden superponer ambas ojivas para ver cuánto se separan.
+
+```{r comparar-4-8}
+# Tabla de frecuencias relativas (%) para 4 y 8 cilindros con las mismas clases
+Auto %>%
+  filter(cylinders %in% c(4, 8)) %>%
+  mutate(Clase = cut(mpg, breaks = bins, right = FALSE)) %>%
+  count(cylinders, Clase, .drop = FALSE) %>%
+  group_by(cylinders) %>%
+  mutate(fr = round(n / sum(n) * 100, 2), Fr = round(cumsum(n) / sum(n) * 100, 2)) %>%
+  kable()
+```
+
+# Paso 6: Análisis comparativo
+
+## Pregunta 1: ¿Existen diferencias en mpg según el número de cilindros?
+
+*Tipo de análisis: comparación entre grupos (diagrama de cajas).*
+
+```{r p1}
+ggplot(Auto, aes(cylinders, mpg)) +
+  geom_boxplot(fill = "#9DC3E6") +
+  labs(title = "Rendimiento (mpg) según número de cilindros",
+       x = "Número de cilindros", y = "Rendimiento (millas/galón)") +
+  theme_minimal()
+
+Auto %>% group_by(cylinders) %>%
+  summarise(n = n(), media = mean(mpg), mediana = median(mpg), sd = sd(mpg),
+            CV = sd / media * 100, min = min(mpg), max = max(mpg)) %>%
+  kable(digits = 2)
+
+summary(aov(mpg ~ cylinders, data = Auto))
+```
+
+- **Mediana al aumentar los cilindros:** disminuye de forma marcada: 28.4 mpg (4 cil.) → 19.0 (6 cil.) → 14.0 (8 cil.). Los grupos de 3 y 5 cilindros tienen solo 4 y 3 autos, por lo que no permiten conclusiones.
+- **Mayor dispersión:** el grupo de 4 cilindros (s = 5.67, rango de 18 a 46.6). Agrupa desde sedanes grandes hasta subcompactos japoneses y europeos muy eficientes. El CV es casi igual en 4, 6 y 8 cilindros (≈ 19 %), es decir, la dispersión relativa es parecida.
+- **Solapamiento:** las cajas de 4, 6 y 8 cilindros casi no se solapan; solo hay traslape en los bigotes y puntos atípicos. Estadísticamente implica que las medias poblacionales son muy probablemente distintas.
+- **Hipótesis para ANOVA:** H0: μ4 = μ6 = μ8 frente a H1: al menos una media difiere. Como referencia, el ANOVA sobre los cinco grupos da F ≈ 172.9 con p < 0.001. Como las desviaciones son desiguales (2.8 a 5.7), conviene verificar con la prueba de Welch o Kruskal-Wallis.
+
+**Interpretación técnica:** existe una relación inversa y fuerte entre cilindros y rendimiento: más cilindros implican mayor cilindrada, peso y consumo. La diferencia entre 4 y 8 cilindros (≈ 14 mpg en la media) es casi el doble de la desviación estándar global, un efecto grande.
+
+```{r p1-welch}
+oneway.test(mpg ~ cylinders, data = filter(Auto, cylinders %in% c(4, 6, 8)))  # Welch
+kruskal.test(mpg ~ cylinders, data = filter(Auto, cylinders %in% c(4, 6, 8)))
+```
+
+## Pregunta 2: ¿Existen diferencias según el país de origen?
+
+*Tipo de análisis: comparación entre grupos (diagrama de cajas).*
+
+```{r p2}
+Auto$origin <- factor(Auto$origin, levels = c("usa", "europe", "japan"))
+
+ggplot(Auto, aes(origin, mpg)) +
+  geom_boxplot(fill = "#A9D18E") +
+  labs(title = "Rendimiento (mpg) según país de origen",
+       x = "País de origen", y = "Rendimiento (millas/galón)") +
+  theme_minimal()
+
+Auto %>% group_by(origin) %>%
+  summarise(n = n(), media = mean(mpg), mediana = median(mpg), sd = sd(mpg),
+            min = min(mpg), max = max(mpg)) %>%
+  kable(digits = 2)
+
+summary(aov(mpg ~ origin, data = Auto))
+leveneTest(mpg ~ origin, data = Auto)     # igualdad de varianzas
+```
+
+- **Mejor y peor rendimiento promedio:** Japón es el mejor (30.45 mpg) y Estados Unidos el peor (20.03 mpg), con Europa en medio (27.60 mpg).
+- **Forma de las distribuciones:** similares en general. USA presenta cola derecha y concentración en valores bajos; Japón y Europa están más centradas en valores medios y altos.
+- **¿Igualdad de varianzas?** Sí parece razonable: las desviaciones estándar son 6.1, 6.4 y 6.6, y la prueba de Levene da p ≈ 0.92.
+- **Variables de confusión:** número de cilindros, cilindrada, peso, potencia y año del modelo. Los autos estadounidenses son más pesados y con más cilindros (los 103 autos de 8 cilindros son todos de USA), de modo que parte de la diferencia por origen es en realidad efecto del tamaño del motor.
+
+**Interpretación técnica:** las diferencias entre orígenes son grandes y estadísticamente significativas (ANOVA: F ≈ 96.6, p < 0.001). Sin embargo, como el origen está asociado con el tipo de vehículo, no se puede atribuir la diferencia al país por sí mismo sin controlar las variables de confusión.
+
+## Pregunta 3: ¿Cómo interactúan origen y cilindros sobre el rendimiento?
+
+*Tipo de análisis: comparación multivariada categórica (cajas agrupadas, solo 4, 6 y 8 cilindros).*
+
+```{r p3}
+Auto46 <- filter(Auto, cylinders %in% c(4, 6, 8))
+
+ggplot(Auto46, aes(cylinders, mpg, fill = origin)) +
+  geom_boxplot() +
+  labs(title = "Rendimiento (mpg) por cilindros y país de origen",
+       x = "Número de cilindros", y = "Rendimiento (millas/galón)", fill = "Origen") +
+  theme_minimal()
+
+Auto46 %>% group_by(origin, cylinders) %>%
+  summarise(n = n(), mediana = median(mpg), .groups = "drop") %>%
+  kable()
+```
+
+- **¿El efecto de los cilindros es constante entre orígenes?** La dirección es la misma (más cilindros, menos mpg), pero la magnitud varía. En USA la caída de 4 a 8 cilindros es de unos 13 mpg; en Japón y Europa solo hay datos suficientes para comparar 4 cilindros.
+- **¿Algún origen se comporta diferente?** Japón: con 4 cilindros su mediana (32 mpg) supera en unos 5 mpg a la de USA y Europa (≈ 27), que son casi idénticas entre sí. La ventaja japonesa no se debe solo al tamaño del motor.
+- **Ventajas de este gráfico:** permite controlar una variable mientras se compara la otra, ayuda a detectar interacción y confusión (la diferencia USA-Japón se reduce de ≈ 10 mpg a ≈ 5 mpg al comparar solo autos de 4 cilindros) y evidencia celdas con pocos datos.
+
+**Interpretación técnica:** parte de la diferencia por origen se explica por la distinta composición de cilindros, y otra parte persiste al controlar cilindros. Un ANOVA de dos factores con interacción permitiría contrastarlo, teniendo en cuenta que el diseño es desbalanceado (no hay autos de 8 cilindros fuera de USA).
+
+## Pregunta 4: Composición de cilindros y orígenes por año
+
+*Tipo de análisis: composición por categorías en el tiempo (barras apiladas al 100 %).*
+
+```{r p4, fig.width=8, fig.height=4.2}
+ggplot(Auto, aes(factor(year), fill = origin)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Composición por país de origen y año",
+       x = "Año del modelo (19xx)", y = "Porcentaje de autos", fill = "Origen") +
+  theme_minimal()
+
+ggplot(Auto, aes(factor(year), fill = cylinders)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Composición por número de cilindros y año",
+       x = "Año del modelo (19xx)", y = "Porcentaje de autos", fill = "Cilindros") +
+  theme_minimal()
+
+table(Auto$year, Auto$origin)
+table(Auto$year, Auto$cylinders)
+round(tapply(Auto$mpg, Auto$year, mean), 1)
+```
+
+- **Evolución por origen:** USA domina todo el periodo, pero la participación japonesa crece mucho: de 2 de 29 autos en 1970 (≈ 7 %) a 13 de 27 en 1980 (≈ 48 %). En 1980 USA baja a 22 % de la muestra.
+- **¿Disminuyó el 8 cilindros?** Sí: era el grupo más numeroso en 1970 (18 de 29, ≈ 62 %) y desaparece en 1980 (0 de 27) y 1982 (0 de 30).
+- **Relación con la tendencia de mpg:** el mpg promedio pasa de 17.7 (1970) a 33.8 (1980) y 32.0 (1982). Ese salto coincide con la caída de los 8 cilindros y el auge de los 4 cilindros y de los autos japoneses, tras las crisis petroleras de 1973 y 1979.
+
+**Interpretación técnica:** el aumento del rendimiento en el tiempo no es solo avance tecnológico: es, en buena medida, un cambio de composición de la oferta (más autos pequeños de 4 cilindros y más importados). Hay que ser cauteloso porque cada año tiene solo unas 27 a 30 observaciones.
+
+# Paso 7: Diseño de mi propio análisis
+
+**Pregunta de análisis propuesta:** ¿Ha mejorado el rendimiento medio de combustible año a año, y esa mejora ha sido similar en los tres orígenes (USA, Europa, Japón)?
+
+**Variables involucradas:**
+
+- Eje X: año del modelo (1970–1982).
+- Eje Y: mpg promedio (millas/galón).
+- Color/grupo: país de origen.
+
+**Tipo de gráfico y justificación:** gráfico de líneas con marcadores, una línea por origen. El eje X es temporal y ordenado, así que las líneas muestran bien la tendencia y permiten comparar pendientes entre grupos. Un diagrama de cajas por año y origen sería más cargado, y las barras no transmiten continuidad temporal.
+
+```{r propio}
+Auto %>%
+  group_by(year, origin) %>%
+  summarise(mpg = mean(mpg), .groups = "drop") %>%
+  ggplot(aes(year + 1900, mpg, color = origin)) +
+  geom_line(linewidth = 0.9) + geom_point() +
+  labs(title = "Evolución del rendimiento medio por origen",
+       x = "Año del modelo", y = "mpg promedio (millas/galón)", color = "Origen") +
+  theme_minimal()
+
+# Pendiente (mpg por año) de una recta simple por origen
+Auto %>% group_by(origin) %>%
+  summarise(pendiente = coef(lm(mpg ~ year))[2]) %>%
+  kable(digits = 2)
+```
+
+**Interpretación técnica:** los tres orígenes muestran una tendencia creciente del rendimiento medio. Ajustando una recta simple por origen, la pendiente es de aproximadamente +1.14 mpg por año en USA, +0.97 en Europa y +0.95 en Japón; es decir, la mejora ha sido similar o algo mayor en USA, que partía de un nivel mucho más bajo (cerca de 15 mpg en 1970 frente a unos 25 de Japón). Las brechas entre orígenes se mantienen casi constantes: USA sigue por debajo en todo el periodo. Las líneas de Europa y Japón son más irregulares porque tienen pocos autos por año (2 a 13), así que las diferencias de un año a otro deben leerse con prudencia. En conjunto, el rendimiento medio crece alrededor de 1 mpg por año, con un salto en 1980. Se podría contrastar con una regresión lineal de `mpg` sobre `year`, origen y cilindros.
